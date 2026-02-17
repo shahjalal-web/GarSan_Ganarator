@@ -29,15 +29,17 @@ export const DEFAULT_LOAD_SHED_LADDER = [
 ];
 
 export const DEFAULT_GENERATOR_PRICING = [
-  { kw: 7, price: 6000 },
-  { kw: 11, price: 8500 },
-  { kw: 16, price: 11500 },
-  { kw: 20, price: 14500 },
+  // { kw: 7, price: 6000 },
+  // { kw: 11, price: 8500 },
+  // { kw: 16, price: 11500 },
+  // { kw: 20, price: 14500 },
   { kw: 22, price: 16500 },
   { kw: 26, price: 19500 },
   { kw: 30, price: 22500 },
   { kw: 38, price: 30000 },
   { kw: 48, price: 40000 },
+  { kw: 50, price: 42000 },
+  { kw: 56, price: 52000 },
 ];
 
 const STANDARD_KW = DEFAULT_GENERATOR_PRICING.map((p) => p.kw);
@@ -52,7 +54,7 @@ export function chooseGeneratorKw(totalWatts: number) {
 
 export function recommendBrandForKw(kw: number) {
   // simple mapping: smaller sizes -> Generac, larger -> Kohler
-  if (kw <= 20) return 'Generac';
+  if (kw <= 30) return 'Generac';
   return 'Kohler';
 }
 
