@@ -1,128 +1,166 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 export const INCLUDED_FOOTAGE = 15;
 
-export type PackageType = 'value' | 'premium_underground';
+export type PackageType = "value" | "premium_underground";
+export type GeneratorBrand = "Generac" | "Kohler";
 
-export const PACKAGE_RULES = {
-  value: {
-    label: 'Value (Above Ground)',
-    includedGasFt: 15,
-    includedElecFt: 15,
-    gasPerFt: 33.35,
-    elecPerFt: 35.2,
-  },
-  premium_underground: {
-    label: 'Premium Underground',
-    includedGasFt: 15,
-    includedElecFt: 15,
-    gasPerFt: 48.35,
-    elecPerFt: 50.2,
-  },
-} as const;
+/**
+ * ১. ডাইনামিক ফুটেজ ক্যালকুলেশন (অ্যাডমিন রেট অনুযায়ী)
+ */
+export function calcExtraFootage(
+  packageType: PackageType,
+  gasFt: number,
+  elecFt: number,
+  settings: any, // অ্যাডমিন থেকে আসা settings অবজেক্ট
+) {
+  // যদি সেটিংস না থাকে বা ফুটেজ রেট না থাকে তবে ডিফল্ট রেট ব্যবহার হবে
+  const rates = settings?.footageRates || {
+    valueGas: 33.35,
+    valueElec: 35.2,
+    premiumGas: 48.35,
+    premiumElec: 50.2,
+  };
 
-export const DEFAULT_LOAD_SHED_LADDER = [
-  { min: 1, max: 1, price: 895 },
-  { min: 2, max: 2, price: 1295 },
-  { min: 3, max: 3, price: 1595 },
-  { min: 4, max: 4, price: 1895 },
-  { min: 5, max: 6, price: 2295 },
-  { min: 7, max: Infinity, pricePerExtra: 350 },
-];
+  const extraGas = Math.max(0, gasFt - INCLUDED_FOOTAGE);
+  const extraElec = Math.max(0, elecFt - INCLUDED_FOOTAGE);
 
-export const DEFAULT_GENERATOR_PRICING = [
-  // { kw: 7, price: 6000 },
-  // { kw: 11, price: 8500 },
-  // { kw: 16, price: 11500 },
-  // { kw: 20, price: 14500 },
-  { kw: 22, price: 16500 },
-  { kw: 26, price: 19500 },
-  { kw: 30, price: 22500 },
-  { kw: 38, price: 30000 },
-  { kw: 48, price: 40000 },
-  { kw: 50, price: 42000 },
-  { kw: 56, price: 52000 },
-];
+  let gasPerFt = rates.valueGas;
+  let elecPerFt = rates.valueElec;
 
-const STANDARD_KW = DEFAULT_GENERATOR_PRICING.map((p) => p.kw);
+  if (packageType === "premium_underground") {
+    gasPerFt = rates.premiumGas;
+    elecPerFt = rates.premiumElec;
+  }
 
-export function chooseGeneratorKw(totalWatts: number) {
-  // conservative sizing: add 20% buffer then convert to kW
-  const kwNeeded = Math.ceil((totalWatts * 1.2) / 1000);
-  // pick the smallest standard KW >= kwNeeded
-  const pick = STANDARD_KW.find((k) => k >= kwNeeded) ?? STANDARD_KW[STANDARD_KW.length - 1];
-  return pick;
-}
-
-export function recommendBrandForKw(kw: number) {
-  // simple mapping: smaller sizes -> Generac, larger -> Kohler
-  if (kw <= 30) return 'Generac';
-  return 'Kohler';
-}
-
-export function generatorBasePriceForKw(kw: number, pricing = DEFAULT_GENERATOR_PRICING) {
-  const entry = pricing.find((p) => p.kw === kw);
-  return entry ? entry.price : pricing[pricing.length - 1].price;
-}
-
-export function calcExtraFootage(packageType: PackageType, gasFt: number, elecFt: number) {
-  const pkg = PACKAGE_RULES[packageType];
-  const extraGas = Math.max(0, gasFt - pkg.includedGasFt);
-  const extraElec = Math.max(0, elecFt - pkg.includedElecFt);
   return {
     extraGas,
     extraElec,
-    gasCharge: parseFloat((extraGas * pkg.gasPerFt).toFixed(2)),
-    elecCharge: parseFloat((extraElec * pkg.elecPerFt).toFixed(2)),
+    gasCharge: parseFloat((extraGas * gasPerFt).toFixed(2)),
+    elecCharge: parseFloat((extraElec * elecPerFt).toFixed(2)),
   };
 }
 
-export function calcLoadShedPrice(selectedLoadsCount: number, ladder = DEFAULT_LOAD_SHED_LADDER) {
+/**
+ * ২. ডাইনামিক লোড শেড প্রাইস (অ্যাডমিন ল্যাডার অনুযায়ী)
+ */
+export function calcLoadShedPrice(selectedLoadsCount: number, settings: any) {
   if (!selectedLoadsCount) return 0;
+
+  // অ্যাডমিন থেকে ল্যাডার না থাকলে ডিফল্ট ল্যাডার
+  const ladder = settings?.loadShedLadder || [];
+
   for (const step of ladder) {
-    if (selectedLoadsCount >= step.min && selectedLoadsCount <= (step.max ?? step.min)) {
+    if (
+      selectedLoadsCount >= step.min &&
+      selectedLoadsCount <= (step.max || Infinity)
+    ) {
       if (step.price) return step.price;
-      if (step.pricePerExtra && step.min) {
-        // fallback
+
+      // ৭+ লোডের জন্য স্পেশাল ক্যালকুলেশন
+      if (step.pricePerExtra) {
         const extras = Math.max(0, selectedLoadsCount - 6);
         return 2295 + extras * step.pricePerExtra;
       }
     }
   }
-  // over max (7+)
-  const extras = Math.max(0, selectedLoadsCount - 6);
-  return 2295 + extras * 350;
+  return 0;
 }
 
+/**
+ * ৩. টোটাল কোট ক্যালকুলেশন (সম্পূর্ণ ডাইনামিক)
+ */
 export function calcQuoteTotal({
+  brand,
   kw,
-  generatorPricing,
   packageType,
   gasFt,
   elecFt,
   loadShedCount,
-  loadShedLadder,
-  miscFees = 0,
-  labor = 0,
+  settings,
 }: {
+  brand: GeneratorBrand;
   kw: number;
-  generatorPricing?: typeof DEFAULT_GENERATOR_PRICING;
   packageType: PackageType;
   gasFt: number;
   elecFt: number;
   loadShedCount: number;
-  loadShedLadder?: typeof DEFAULT_LOAD_SHED_LADDER;
-  miscFees?: number;
-  labor?: number;
+  settings: any;
 }) {
-  const basePrice = generatorBasePriceForKw(kw, generatorPricing);
-  const footage = calcExtraFootage(packageType, gasFt, elecFt);
-  const loadShedPrice = calcLoadShedPrice(loadShedCount, loadShedLadder);
-  const total = basePrice + footage.gasCharge + footage.elecCharge + loadShedPrice + miscFees + labor;
+  const pricingList = settings?.generatorPricing || [];
+
+  // ১. সঠিক জেনারেটর কনফিগ খুঁজে বের করা
+  const selectedConfig = pricingList.find((p: any) => {
+    const kwMatch = Number(p.kw) === Number(kw);
+    // যদি ডাটাতে ব্র্যান্ড থাকে তবে চেক করবে, না থাকলে শুধু কিলোওয়াট দিয়ে খুঁজবে
+    const brandMatch = p.brand
+      ? String(p.brand).toLowerCase() === String(brand).toLowerCase()
+      : true;
+    return kwMatch && brandMatch;
+  });
+
+  // ২. বেইস প্রাইস নির্ধারণ (basePrice + installPrice)
+  // আপনার মডেল অনুযায়ী: ৪২০০ + ১৫০০ = ৫৭০০ (যেমন ১০ কিলোওয়াটের জন্য)
+  const generatorBase = Number(selectedConfig?.basePrice || 0);
+  const generatorInstall = Number(selectedConfig?.installPrice || 0);
+  const totalBaseValue = generatorBase + generatorInstall;
+  console.log(generatorBase, generatorInstall);
+
+  // ৩. প্রিমিয়াম আপগ্রেড সংগ্রহ
+  let premiumUpgradeAmount = 0;
+  if (packageType === "premium_underground") {
+    premiumUpgradeAmount = Number(selectedConfig?.premiumUpgradeAmount || 0);
+  }
+
+  // ৪. ফুটেজ এবং লোড শেড চার্জ ক্যালকুলেশন
+  const footage = calcExtraFootage(packageType, gasFt, elecFt, settings);
+  const loadShedPrice = calcLoadShedPrice(loadShedCount, settings);
+
+  // ৫. ফাইনাল টোটাল ক্যালকুলেশন
+  // TOTAL = (Base + Install) + Premium Upgrade + Extra Footage + Load Management
+  const total =
+    totalBaseValue +
+    premiumUpgradeAmount +
+    footage.gasCharge +
+    footage.elecCharge +
+    loadShedPrice;
+
   return {
-    basePrice,
+    basePrice: totalBaseValue, // এটি এখন জেনারেটরের সম্মিলিত বেইস প্রাইস
+    premiumUpgradeAmount,
     ...footage,
     loadShedPrice,
-    miscFees,
-    labor,
     total: parseFloat(total.toFixed(2)),
   };
+}
+
+/**
+ * ৪. জেনারেটর সাইজ রিকমেন্ডেশন (আগের মতোই থাকবে)
+ */
+export function chooseGeneratorKw(
+  acCount: number,
+  points: number,
+  brand: GeneratorBrand,
+  settings: any,
+): number {
+  let recommendedKw = 18;
+
+  if (acCount === 1) recommendedKw = 22;
+  else if (acCount === 2) recommendedKw = 24;
+  else if (acCount >= 3) recommendedKw = 30;
+
+  if (points >= 2 && points <= 3) recommendedKw += 2;
+  else if (points >= 4 && points <= 5) recommendedKw += 4;
+  else if (points >= 6) recommendedKw += 6;
+
+  const pricingList = settings?.generatorPricing || [];
+  const availableSizes = pricingList
+    .filter((p: any) => p.brand === brand)
+    .map((p: any) => Number(p.kw))
+    .sort((a: number, b: number) => a - b);
+
+  const finalSize =
+    availableSizes.find((size: number) => size >= recommendedKw) ||
+    availableSizes[availableSizes.length - 1];
+
+  return finalSize || 18;
 }

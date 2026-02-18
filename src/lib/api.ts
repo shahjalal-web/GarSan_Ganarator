@@ -26,7 +26,7 @@ export function clearAdminPin() {
 async function apiFetch(
   path: string,
   options: RequestInit = {},
-  requireAdmin = false
+  requireAdmin = false,
 ): Promise<any> {
   const headers: any = {
     "Content-Type": "application/json",
@@ -63,7 +63,14 @@ async function apiFetch(
 /*                                 IMAGES                                     */
 /* -------------------------------------------------------------------------- */
 
-export async function uploadImageToCloudinary(file: File): Promise<string> {
+export type CloudinaryUploadResult = {
+  url: string;
+  public_id: string;
+};
+
+export async function uploadImageToCloudinary(
+  file: File
+): Promise<CloudinaryUploadResult> {
   const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
   const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
 
@@ -73,17 +80,29 @@ export async function uploadImageToCloudinary(file: File): Promise<string> {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("upload_preset", uploadPreset);
+  fd.append("folder", "quotes"); // important (delete সহজ হবে)
 
   const res = await fetch(
     `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-    { method: "POST", body: fd }
+    {
+      method: "POST",
+      body: fd,
+    }
   );
 
   const data = await res.json();
-  if (!res.ok) throw new Error("Cloudinary upload failed");
 
-  return data.secure_url;
+  if (!res.ok) {
+    console.error(data);
+    throw new Error("Cloudinary upload failed");
+  }
+
+  return {
+    url: data.secure_url,
+    public_id: data.public_id,
+  };
 }
+
 
 export async function uploadImageToBackend(file: File): Promise<string> {
   const toDataUrl = (f: File) =>
@@ -127,7 +146,7 @@ export async function addTech(name: string, pin: string) {
       method: "POST",
       body: JSON.stringify({ name, pin }),
     },
-    true
+    true,
   );
 }
 
@@ -136,7 +155,7 @@ export async function deleteTech(name: string) {
   return apiFetch(
     `/techs/${encodeURIComponent(name)}`,
     { method: "DELETE" },
-    true
+    true,
   );
 }
 
@@ -171,10 +190,9 @@ export async function saveSettings(settings: any) {
       method: "POST",
       body: JSON.stringify(settings),
     },
-    true
+    true,
   );
 }
-
 
 export async function updateLoadShedLadder(ladder: any[]) {
   return apiFetch(
@@ -183,18 +201,40 @@ export async function updateLoadShedLadder(ladder: any[]) {
       method: "PUT",
       body: JSON.stringify({ ladder }),
     },
-    true
+    true,
   );
 }
 
 export async function updateGeneratorPricing(pricing: any[]) {
+  console.log("pricing", pricing)
   return apiFetch(
     "/settings/generator-pricing",
     {
       method: "PUT",
       body: JSON.stringify({ pricing }),
     },
-    true
+    true,
+  );
+}
+
+export async function updateFootageRates(rates: any) {
+  return apiFetch(
+    "/settings/footage-rates",
+    {
+      method: "PUT",
+      body: JSON.stringify({ rates }),
+    },
+    true,
+  );
+}
+
+export async function deleteQuote(quoteId: string) {
+  return apiFetch(
+    `/quotes/${quoteId}`,
+    {
+      method: "DELETE",
+    },
+    true, // true মানে হলো এটি অ্যাডমিন পিন বা অথেন্টিকেশন ব্যবহার করবে
   );
 }
 
@@ -205,6 +245,6 @@ export async function updateTechPin(name: string, newPin: string) {
       method: "PUT",
       body: JSON.stringify({ name, newPin }),
     },
-    true // Assuming true enables admin auth headers
+    true, // Assuming true enables admin auth headers
   );
 }
